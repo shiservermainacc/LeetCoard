@@ -111,23 +111,33 @@ function buildSolvers(
 export default function ProblemBoard({ problems, events, leaderboard, status }: Props) {
   const sortedProblems = [...problems].sort((a, b) => a.order - b.order);
   const rowByUser = new Map(leaderboard.map((r) => [r.username, r]));
+  const boardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    const board = boardRef.current;
     const list = listRef.current;
     const content = contentRef.current;
-    if (!list || !content) return;
+    if (!board || !list || !content) return;
 
     let idleTimer = 0;
     let frame = 0;
     let previousFrameTime = 0;
     let direction = 1;
+    let pointerInside = board.matches(":hover");
+    let pointerDown = false;
 
     const stop = () => {
       if (frame) cancelAnimationFrame(frame);
       frame = 0;
       previousFrameTime = 0;
+    };
+
+    const pause = () => {
+      window.clearTimeout(idleTimer);
+      idleTimer = 0;
+      stop();
     };
 
     const tick = (time: number) => {
@@ -156,61 +166,81 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
     };
 
     const restartIdleTimer = () => {
-      window.clearTimeout(idleTimer);
-      stop();
-      if (document.hidden) return;
+      pause();
+      if (pointerInside || pointerDown || document.hidden) return;
 
       idleTimer = window.setTimeout(() => {
-        if (!document.hidden && list.scrollHeight > list.clientHeight + 1) {
+        idleTimer = 0;
+        if (
+          !pointerInside &&
+          !pointerDown &&
+          !document.hidden &&
+          list.scrollHeight > list.clientHeight + 1
+        ) {
           frame = requestAnimationFrame(tick);
         }
       }, AUTO_SCROLL_IDLE_MS);
     };
 
-    const onWindowBlur = () => {
-      window.clearTimeout(idleTimer);
-      stop();
+    const onBoardPointerEnter = () => {
+      pointerInside = true;
+      pause();
     };
+    const onBoardPointerLeave = () => {
+      pointerInside = false;
+      if (!pointerDown) restartIdleTimer();
+    };
+    const onPointerDown = () => {
+      pointerDown = true;
+      pause();
+    };
+    const onPointerUp = () => {
+      pointerDown = false;
+      if (pointerInside) pause();
+      else restartIdleTimer();
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.buttons > 0) {
+        pointerDown = true;
+        pause();
+      }
+    };
+    const onUserScroll = () => restartIdleTimer();
+    const onWindowBlur = () => pause();
     const onWindowFocus = () => restartIdleTimer();
     const onVisibilityChange = () => {
-      if (document.hidden) onWindowBlur();
+      if (document.hidden) pause();
       else restartIdleTimer();
     };
 
-    const onPointerMove = (event: PointerEvent) => {
-      if (event.buttons > 0) restartIdleTimer();
-    };
-
-    const userInputEvents = [
-      "pointerdown",
-      "pointerup",
-      "wheel",
-      "touchstart",
-      "touchmove",
-      "touchend",
-      "keydown",
-    ] as const;
-    userInputEvents.forEach((eventName) =>
-      list.addEventListener(eventName, restartIdleTimer, { passive: true }),
-    );
+    const userInputEvents = ["wheel", "touchstart", "touchmove", "touchend", "keydown"] as const;
+    userInputEvents.forEach((eventName) => list.addEventListener(eventName, onUserScroll, { passive: true }));
+    board.addEventListener("pointerenter", onBoardPointerEnter);
+    board.addEventListener("pointerleave", onBoardPointerLeave);
+    list.addEventListener("pointerdown", onPointerDown);
     list.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("blur", onWindowBlur);
     window.addEventListener("focus", onWindowFocus);
     document.addEventListener("visibilitychange", onVisibilityChange);
 
-    const resizeObserver = new ResizeObserver(restartIdleTimer);
-    resizeObserver.observe(list);
+    const resizeObserver = new ResizeObserver(() => {
+      if (!pointerInside && !pointerDown && idleTimer === 0 && frame === 0) {
+        restartIdleTimer();
+      }
+    });
     resizeObserver.observe(content);
     restartIdleTimer();
 
     return () => {
-      window.clearTimeout(idleTimer);
-      stop();
+      pause();
       resizeObserver.disconnect();
-      userInputEvents.forEach((eventName) =>
-        list.removeEventListener(eventName, restartIdleTimer),
-      );
+      userInputEvents.forEach((eventName) => list.removeEventListener(eventName, onUserScroll));
+      board.removeEventListener("pointerenter", onBoardPointerEnter);
+      board.removeEventListener("pointerleave", onBoardPointerLeave);
+      list.removeEventListener("pointerdown", onPointerDown);
       list.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("blur", onWindowBlur);
       window.removeEventListener("focus", onWindowFocus);
       document.removeEventListener("visibilitychange", onVisibilityChange);
@@ -218,7 +248,7 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
   }, []);
 
   return (
-    <div className="surface rounded-3xl h-full flex flex-col overflow-hidden">
+    <div ref={boardRef} className="surface rounded-3xl h-full flex flex-col overflow-hidden">
       <div className="px-6 py-3 border-b border-white/5 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <div className="size-2 rounded-full bg-g-yellow" />
