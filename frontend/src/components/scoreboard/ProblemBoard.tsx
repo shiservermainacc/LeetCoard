@@ -30,7 +30,7 @@ const DIFF_LABEL: Record<ProblemPayload["difficulty"], string> = {
   hard: "Hard",
 };
 
-const AUTO_SCROLL_IDLE_MS = 3000;
+const AUTO_SCROLL_IDLE_MS = 10_000;
 const AUTO_SCROLL_SPEED_PX_PER_MS = 0.045;
 
 function buildSolvers(
@@ -111,22 +111,20 @@ function buildSolvers(
 export default function ProblemBoard({ problems, events, leaderboard, status }: Props) {
   const sortedProblems = [...problems].sort((a, b) => a.order - b.order);
   const rowByUser = new Map(leaderboard.map((r) => [r.username, r]));
-  const boardRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const board = boardRef.current;
     const list = listRef.current;
     const content = contentRef.current;
-    if (!board || !list || !content) return;
+    if (!list || !content) return;
 
     let idleTimer = 0;
     let frame = 0;
     let previousFrameTime = 0;
     let direction = 1;
-    let pointerInside = board.matches(":hover");
-    let pointerDown = false;
+    let autoScrolling = false;
+    let expectedAutoScrollTop: number | null = null;
 
     const stop = () => {
       if (frame) cancelAnimationFrame(frame);
@@ -138,6 +136,8 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
       window.clearTimeout(idleTimer);
       idleTimer = 0;
       stop();
+      autoScrolling = false;
+      expectedAutoScrollTop = null;
     };
 
     const tick = (time: number) => {
@@ -153,13 +153,16 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
 
       const nextTop = list.scrollTop + direction * elapsed * AUTO_SCROLL_SPEED_PX_PER_MS;
       if (nextTop >= maxScroll) {
-        list.scrollTop = maxScroll;
+        expectedAutoScrollTop = maxScroll;
+        list.scrollTop = expectedAutoScrollTop;
         direction = -1;
       } else if (nextTop <= 0) {
-        list.scrollTop = 0;
+        expectedAutoScrollTop = 0;
+        list.scrollTop = expectedAutoScrollTop;
         direction = 1;
       } else {
-        list.scrollTop = nextTop;
+        expectedAutoScrollTop = nextTop;
+        list.scrollTop = expectedAutoScrollTop;
       }
 
       frame = requestAnimationFrame(tick);
@@ -167,45 +170,27 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
 
     const restartIdleTimer = () => {
       pause();
-      if (pointerInside || pointerDown || document.hidden) return;
+      if (document.hidden) return;
 
       idleTimer = window.setTimeout(() => {
         idleTimer = 0;
-        if (
-          !pointerInside &&
-          !pointerDown &&
-          !document.hidden &&
-          list.scrollHeight > list.clientHeight + 1
-        ) {
+        if (!document.hidden && list.scrollHeight > list.clientHeight + 1) {
+          autoScrolling = true;
           frame = requestAnimationFrame(tick);
         }
       }, AUTO_SCROLL_IDLE_MS);
     };
 
-    const onBoardPointerEnter = () => {
-      pointerInside = true;
-      pause();
-    };
-    const onBoardPointerLeave = () => {
-      pointerInside = false;
-      if (!pointerDown) restartIdleTimer();
-    };
-    const onPointerDown = () => {
-      pointerDown = true;
-      pause();
-    };
-    const onPointerUp = () => {
-      pointerDown = false;
-      if (pointerInside) pause();
-      else restartIdleTimer();
-    };
-    const onPointerMove = (event: PointerEvent) => {
-      if (event.buttons > 0) {
-        pointerDown = true;
-        pause();
+    const onScroll = () => {
+      if (
+        autoScrolling &&
+        expectedAutoScrollTop !== null &&
+        Math.abs(list.scrollTop - expectedAutoScrollTop) < 1.5
+      ) {
+        return;
       }
+      restartIdleTimer();
     };
-    const onUserScroll = () => restartIdleTimer();
     const onWindowBlur = () => pause();
     const onWindowFocus = () => restartIdleTimer();
     const onVisibilityChange = () => {
@@ -213,21 +198,13 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
       else restartIdleTimer();
     };
 
-    const userInputEvents = ["wheel", "touchstart", "touchmove", "touchend", "keydown"] as const;
-    userInputEvents.forEach((eventName) => list.addEventListener(eventName, onUserScroll, { passive: true }));
-    board.addEventListener("pointerenter", onBoardPointerEnter);
-    board.addEventListener("pointerleave", onBoardPointerLeave);
-    list.addEventListener("pointerdown", onPointerDown);
-    list.addEventListener("pointermove", onPointerMove, { passive: true });
-    window.addEventListener("pointerup", onPointerUp);
+    list.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("blur", onWindowBlur);
     window.addEventListener("focus", onWindowFocus);
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     const resizeObserver = new ResizeObserver(() => {
-      if (!pointerInside && !pointerDown && idleTimer === 0 && frame === 0) {
-        restartIdleTimer();
-      }
+      if (idleTimer === 0 && frame === 0 && !document.hidden) restartIdleTimer();
     });
     resizeObserver.observe(content);
     restartIdleTimer();
@@ -235,12 +212,7 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
     return () => {
       pause();
       resizeObserver.disconnect();
-      userInputEvents.forEach((eventName) => list.removeEventListener(eventName, onUserScroll));
-      board.removeEventListener("pointerenter", onBoardPointerEnter);
-      board.removeEventListener("pointerleave", onBoardPointerLeave);
-      list.removeEventListener("pointerdown", onPointerDown);
-      list.removeEventListener("pointermove", onPointerMove);
-      window.removeEventListener("pointerup", onPointerUp);
+      list.removeEventListener("scroll", onScroll);
       window.removeEventListener("blur", onWindowBlur);
       window.removeEventListener("focus", onWindowFocus);
       document.removeEventListener("visibilitychange", onVisibilityChange);
@@ -248,7 +220,7 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
   }, []);
 
   return (
-    <div ref={boardRef} className="surface rounded-3xl h-full flex flex-col overflow-hidden">
+    <div className="surface rounded-3xl h-full flex flex-col overflow-hidden">
       <div className="px-6 py-3 border-b border-white/5 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <div className="size-2 rounded-full bg-g-yellow" />
