@@ -60,7 +60,7 @@ function DashboardInner({ token, onLogout }: { token: string; onLogout: () => vo
   }
 
   return (
-    <div className="w-screen h-screen flex flex-col stage-grid p-5 gap-4">
+    <div className="w-full min-h-screen flex flex-col stage-grid p-5 gap-4">
       <header className="flex items-center justify-between surface rounded-2xl px-6 py-3 shrink-0">
         <div>
           <h1 className="text-xl font-black">控制中心</h1>
@@ -76,7 +76,7 @@ function DashboardInner({ token, onLogout }: { token: string; onLogout: () => vo
         </div>
       </header>
 
-      <div className="flex-1 grid grid-cols-12 grid-rows-2 gap-4 min-h-0">
+      <div className="flex-1 grid grid-cols-12 gap-4 min-h-0 lg:grid-rows-2 lg:min-h-[900px]">
         <section className="col-span-12 lg:col-span-4 lg:col-start-1 lg:row-start-1 lg:row-span-1 min-h-0">
           <ContestPanel snapshot={adminSnap} token={token} />
         </section>
