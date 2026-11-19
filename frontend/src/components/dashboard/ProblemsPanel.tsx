@@ -392,10 +392,15 @@ interface SlugSearchProps {
 }
 
 function normaliseQuery(raw: string): string {
-  return raw.trim().replace(/\s+/g, "-");
+  return raw.trim().replace(/\s+/g, " ");
+}
+
+function normaliseSlug(raw: string): string {
+  return normaliseQuery(raw).toLowerCase().replace(/\s+/g, "-");
 }
 
 function SlugSearch({ value, disabled, onChange, onPick }: SlugSearchProps) {
+  const [query, setQuery] = useState(value);
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -403,6 +408,14 @@ function SlugSearch({ value, disabled, onChange, onPick }: SlugSearchProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<number | null>(null);
+  const draftValueRef = useRef(value);
+
+  useEffect(() => {
+    if (value !== draftValueRef.current) {
+      draftValueRef.current = value;
+      setQuery(value);
+    }
+  }, [value]);
 
   // Track input bounds while open; capture-phase scroll catches all ancestor
   // scroll containers (the inner panel scroll, the page itself, etc.).
@@ -438,7 +451,8 @@ function SlugSearch({ value, disabled, onChange, onPick }: SlugSearchProps) {
 
   const runSearch = (raw: string) => {
     const q = normaliseQuery(raw);
-    if (q.length < 2) {
+    const isIdQuery = /^#?\d+$/.test(q);
+    if (q.length < 2 && !isIdQuery) {
       setHits([]);
       setOpen(false);
       setLoading(false);
@@ -459,7 +473,9 @@ function SlugSearch({ value, disabled, onChange, onPick }: SlugSearchProps) {
   };
 
   const handleChange = (raw: string) => {
-    const slug = normaliseQuery(raw);
+    setQuery(raw);
+    const slug = normaliseSlug(raw);
+    draftValueRef.current = slug;
     onChange(slug);
     runSearch(raw);
   };
@@ -482,13 +498,17 @@ function SlugSearch({ value, disabled, onChange, onPick }: SlugSearchProps) {
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
+                  setQuery(h.title_slug);
+                  draftValueRef.current = h.title_slug;
                   onPick(h.title_slug, h.title, h.frontend_id);
                   setOpen(false);
                 }}
                 className="block w-full text-left px-3 py-1.5 hover:bg-stage-700"
               >
                 <div className="text-ink-100 truncate">{h.title}</div>
-                <div className="text-[10px] text-ink-300 font-mono truncate">{h.title_slug}</div>
+                <div className="text-[10px] text-ink-300 font-mono truncate">
+                  {h.frontend_id ? `#${h.frontend_id} · ` : ""}{h.title_slug}
+                </div>
               </button>
             ))}
           </div>,
@@ -500,10 +520,12 @@ function SlugSearch({ value, disabled, onChange, onPick }: SlugSearchProps) {
     <div className="relative">
       <input
         ref={inputRef}
-        value={value}
+        value={query}
         onChange={(e) => handleChange(e.target.value)}
-        onFocus={() => value.length >= 2 && setOpen(true)}
-        placeholder="輸入題目關鍵字…"
+        onFocus={() =>
+          (query.trim().length >= 2 || /^#?\d+$/.test(query.trim())) && setOpen(true)
+        }
+        placeholder="輸入題號或題目名稱…"
         disabled={disabled}
         className="w-full px-2 py-1 rounded bg-stage-900/50 border border-white/10 text-sm font-mono disabled:opacity-50"
       />

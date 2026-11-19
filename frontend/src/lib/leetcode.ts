@@ -23,7 +23,14 @@ function pickFrontendId(d: Record<string, unknown>): string | null {
 }
 
 export async function searchProblems(query: string, limit = 12): Promise<LcSearchHit[]> {
-  const q = query.trim();
+  const q = query.trim().replace(/\s+/g, " ");
+  const idQuery = q.match(/^#?(\d+)$/)?.[1];
+  if (idQuery) {
+    const problem = await getProblemDetail(idQuery);
+    return problem
+      ? [{ title: problem.title, title_slug: problem.title_slug, frontend_id: problem.frontend_id }]
+      : [];
+  }
   if (q.length < 2) return [];
   const res = await fetch(`${BASE}/search?query=${encodeURIComponent(q)}`);
   if (!res.ok) return [];
@@ -48,7 +55,7 @@ export async function getProblemDetail(slug: string): Promise<LcProblemDetail | 
   const raw = String(data.difficulty ?? "").toLowerCase();
   if (raw !== "easy" && raw !== "medium" && raw !== "hard") return null;
   return {
-    title_slug: slug,
+    title_slug: (data.titleSlug as string | undefined) ?? (data.title_slug as string | undefined) ?? slug,
     title: (data.title as string | undefined) ?? slug,
     difficulty: raw,
     frontend_id: pickFrontendId(data),
