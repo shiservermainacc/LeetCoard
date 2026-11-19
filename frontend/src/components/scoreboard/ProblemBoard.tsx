@@ -31,7 +31,7 @@ const DIFF_LABEL: Record<ProblemPayload["difficulty"], string> = {
 };
 
 const AUTO_SCROLL_IDLE_MS = 3000;
-const AUTO_SCROLL_SPEED_PX_PER_MS = 0.02;
+const AUTO_SCROLL_SPEED_PX_PER_MS = 0.045;
 
 function buildSolvers(
   problem: ProblemPayload,
@@ -165,10 +165,23 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
       }, AUTO_SCROLL_IDLE_MS);
     };
 
-    const userInputEvents = ["pointermove", "pointerdown", "wheel", "touchstart", "keydown"] as const;
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.buttons > 0) restartIdleTimer();
+    };
+
+    const userInputEvents = [
+      "pointerdown",
+      "pointerup",
+      "wheel",
+      "touchstart",
+      "touchmove",
+      "touchend",
+      "keydown",
+    ] as const;
     userInputEvents.forEach((eventName) =>
       list.addEventListener(eventName, restartIdleTimer, { passive: true }),
     );
+    list.addEventListener("pointermove", onPointerMove, { passive: true });
 
     const resizeObserver = new ResizeObserver(restartIdleTimer);
     resizeObserver.observe(list);
@@ -182,6 +195,7 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
       userInputEvents.forEach((eventName) =>
         list.removeEventListener(eventName, restartIdleTimer),
       );
+      list.removeEventListener("pointermove", onPointerMove);
     };
   }, []);
 
