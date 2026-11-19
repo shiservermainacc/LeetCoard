@@ -11,20 +11,19 @@ export default function Leaderboard({ rows, problems }: Props) {
   const sortedProblems = [...problems].sort((a, b) => a.order - b.order);
   return (
     <div className="surface rounded-3xl h-full flex flex-col overflow-hidden">
-      <div className="px-5 py-3 border-b border-white/5 flex items-center justify-between">
+      <div className="px-5 py-3 border-b border-white/5 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <div className="size-2 rounded-full bg-g-blue animate-pulse" />
           <h2 className="font-display font-bold text-lg tracking-wide">排行榜</h2>
         </div>
-        <div className="flex items-center gap-1 text-[10px] text-ink-300 font-mono">
-          {sortedProblems.map((p, i) => (
-            <div key={p.title_slug} className="flex items-center gap-1">
+        <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(40px,1fr))] gap-x-1 gap-y-1 text-[10px] text-ink-300 font-mono">
+          {sortedProblems.map((p) => (
+            <div key={p.title_slug} className="flex min-w-0 items-center justify-center gap-1">
               <span
                 className="inline-block size-2 rounded-full"
                 style={{ background: difficultyColor(p.difficulty) }}
               />
               <span>{p.points}</span>
-              {i < sortedProblems.length - 1 && <span className="text-white/20">·</span>}
             </div>
           ))}
         </div>
@@ -57,7 +56,7 @@ function Row({ row, problems }: { row: LeaderboardRow; problems: ProblemPayload[
   const colour = userColor(row.username, row.color);
   return (
     <div className="flex items-center gap-3">
-      <div className="text-xl font-black text-ink-300 font-mono w-8 text-right tabular">
+      <div className="text-xl font-black text-ink-300 font-mono w-8 shrink-0 text-right tabular">
         {row.rank}
       </div>
       <div
@@ -75,19 +74,19 @@ function Row({ row, problems }: { row: LeaderboardRow; problems: ProblemPayload[
           </div>
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-none max-w-[35%]">
         <div className="text-[14px] font-bold leading-tight truncate" style={{ color: colour }}>
           {row.username}
         </div>
         <div className="text-[11px] text-ink-300 font-mono truncate">{row.student_id}</div>
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="flex min-w-0 flex-1 flex-wrap content-center gap-1">
         {problems.map((p) => {
           const solved = row.solved_problems.includes(p.title_slug);
           return (
             <div
               key={p.title_slug}
-              className="size-3.5 rounded-sm border-2"
+              className="size-3.5 shrink-0 rounded-sm border-2"
               style={{
                 borderColor: difficultyColor(p.difficulty),
                 background: solved ? difficultyColor(p.difficulty) : "transparent",
@@ -98,7 +97,7 @@ function Row({ row, problems }: { row: LeaderboardRow; problems: ProblemPayload[
         })}
       </div>
       <motion.div
-        className="text-2xl font-black tabular w-12 text-right"
+        className="text-2xl font-black tabular w-12 shrink-0 text-right"
         key={row.score}
         initial={{ scale: 1.4, color: "#FBBC04" }}
         animate={{ scale: 1, color: "#f4f6ff" }}
