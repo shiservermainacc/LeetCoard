@@ -157,16 +157,16 @@ function ProblemCard({ problem, solvers, blurTitle }: CardProps) {
       className="rounded-2xl border border-white/10 bg-stage-900/60 overflow-hidden"
     >
       {/* Title strip */}
-      <div className="px-5 pt-4 pb-3 flex items-center gap-3">
+      <div className="px-5 pt-4 pb-3 flex items-start gap-3">
         <span
-          className="px-2 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase"
+          className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-black tracking-widest uppercase"
           style={{ background: `${diffColor}22`, color: diffColor, border: `1px solid ${diffColor}55` }}
         >
           {DIFF_LABEL[problem.difficulty]}
         </span>
         <h3
           className={
-            "font-display font-black text-xl tracking-tight truncate flex-1 " +
+            "min-w-0 flex-1 whitespace-normal break-words font-display font-black text-xl tracking-tight " +
             (masked ? "text-ink-300 select-none" : "")
           }
           aria-hidden={masked}
@@ -174,7 +174,7 @@ function ProblemCard({ problem, solvers, blurTitle }: CardProps) {
           <span className="font-mono text-ink-300 mr-2">#{number}</span>
           {title}
         </h3>
-        <span className="font-mono tabular text-sm text-ink-300">
+        <span className="shrink-0 font-mono tabular text-sm text-ink-300">
           <span className="text-g-yellow font-bold">{problem.points}</span> pt
         </span>
       </div>
