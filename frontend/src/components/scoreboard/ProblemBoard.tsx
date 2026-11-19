@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
+import { useEffect, useRef } from "react";
 import type {
   ContestStatus,
   LeaderboardRow,
@@ -28,6 +29,9 @@ const DIFF_LABEL: Record<ProblemPayload["difficulty"], string> = {
   medium: "Medium",
   hard: "Hard",
 };
+
+const AUTO_SCROLL_IDLE_MS = 3000;
+const AUTO_SCROLL_SPEED_PX_PER_MS = 0.02;
 
 function buildSolvers(
   problem: ProblemPayload,
@@ -107,6 +111,79 @@ function buildSolvers(
 export default function ProblemBoard({ problems, events, leaderboard, status }: Props) {
   const sortedProblems = [...problems].sort((a, b) => a.order - b.order);
   const rowByUser = new Map(leaderboard.map((r) => [r.username, r]));
+  const listRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const list = listRef.current;
+    const content = contentRef.current;
+    if (!list || !content) return;
+
+    let idleTimer = 0;
+    let frame = 0;
+    let previousFrameTime = 0;
+    let direction = 1;
+
+    const stop = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+      previousFrameTime = 0;
+    };
+
+    const tick = (time: number) => {
+      if (!previousFrameTime) previousFrameTime = time;
+      const elapsed = Math.min(time - previousFrameTime, 50);
+      previousFrameTime = time;
+
+      const maxScroll = list.scrollHeight - list.clientHeight;
+      if (maxScroll <= 1) {
+        stop();
+        return;
+      }
+
+      const nextTop = list.scrollTop + direction * elapsed * AUTO_SCROLL_SPEED_PX_PER_MS;
+      if (nextTop >= maxScroll) {
+        list.scrollTop = maxScroll;
+        direction = -1;
+      } else if (nextTop <= 0) {
+        list.scrollTop = 0;
+        direction = 1;
+      } else {
+        list.scrollTop = nextTop;
+      }
+
+      frame = requestAnimationFrame(tick);
+    };
+
+    const restartIdleTimer = () => {
+      window.clearTimeout(idleTimer);
+      stop();
+      idleTimer = window.setTimeout(() => {
+        if (list.scrollHeight > list.clientHeight + 1) {
+          frame = requestAnimationFrame(tick);
+        }
+      }, AUTO_SCROLL_IDLE_MS);
+    };
+
+    const userInputEvents = ["pointermove", "pointerdown", "wheel", "touchstart", "keydown"] as const;
+    userInputEvents.forEach((eventName) =>
+      list.addEventListener(eventName, restartIdleTimer, { passive: true }),
+    );
+
+    const resizeObserver = new ResizeObserver(restartIdleTimer);
+    resizeObserver.observe(list);
+    resizeObserver.observe(content);
+    restartIdleTimer();
+
+    return () => {
+      window.clearTimeout(idleTimer);
+      stop();
+      resizeObserver.disconnect();
+      userInputEvents.forEach((eventName) =>
+        list.removeEventListener(eventName, restartIdleTimer),
+      );
+    };
+  }, []);
 
   return (
     <div className="surface rounded-3xl h-full flex flex-col overflow-hidden">
@@ -120,20 +197,27 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
         </span>
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+      <div
+        ref={listRef}
+        tabIndex={0}
+        aria-label="題目進度清單"
+        className="flex-1 min-h-0 overflow-y-auto p-4"
+      >
         {sortedProblems.length === 0 && (
           <div className="h-full flex items-center justify-center text-ink-300 text-sm">
             尚未設定題目
           </div>
         )}
-        {sortedProblems.map((p) => (
-          <ProblemCard
-            key={p.title_slug}
-            problem={p}
-            solvers={buildSolvers(p, events, rowByUser)}
-            blurTitle={status === "setup"}
-          />
-        ))}
+        <div ref={contentRef} className="space-y-4">
+          {sortedProblems.map((p) => (
+            <ProblemCard
+              key={p.title_slug}
+              problem={p}
+              solvers={buildSolvers(p, events, rowByUser)}
+              blurTitle={status === "setup"}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
