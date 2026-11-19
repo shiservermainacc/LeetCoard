@@ -66,7 +66,7 @@ export default function ContestPanel({ snapshot, token }: Props) {
   }
 
   return (
-    <div className="surface rounded-3xl p-5 h-full">
+    <div className="surface rounded-3xl p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="font-bold text-lg">比賽控制</h2>
         <span

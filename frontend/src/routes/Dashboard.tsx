@@ -76,17 +76,19 @@ function DashboardInner({ token, onLogout }: { token: string; onLogout: () => vo
         </div>
       </header>
 
-      <div className="flex-1 grid grid-cols-12 gap-4 min-h-0 lg:grid-rows-2 lg:min-h-[900px]">
-        <section className="col-span-12 lg:col-span-4 lg:col-start-1 lg:row-start-1 lg:row-span-1 min-h-0">
-          <ContestPanel snapshot={adminSnap} token={token} />
-        </section>
-        <section className="col-span-12 lg:col-span-4 lg:col-start-1 lg:row-start-2 lg:row-span-1 min-h-0">
-          <ProblemsPanel snapshot={adminSnap} token={token} />
-        </section>
-        <section className="col-span-12 lg:col-span-4 lg:col-start-5 lg:row-start-1 lg:row-span-2 min-h-0">
+      <div className="flex-1 grid grid-cols-12 gap-4 min-h-0">
+        <div className="col-span-12 lg:col-span-4 flex flex-col gap-4 min-h-0">
+          <section className="shrink-0">
+            <ContestPanel snapshot={adminSnap} token={token} />
+          </section>
+          <section className="flex-1 min-h-[360px]">
+            <ProblemsPanel snapshot={adminSnap} token={token} />
+          </section>
+        </div>
+        <section className="col-span-12 lg:col-span-4 min-h-[360px] lg:min-h-0">
           <EventsPanel snapshot={adminSnap} />
         </section>
-        <section className="col-span-12 lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:row-span-2 min-h-0">
+        <section className="col-span-12 lg:col-span-4 min-h-[360px] lg:min-h-0">
           <ParticipantsPanel snapshot={adminSnap} token={token} />
         </section>
       </div>
