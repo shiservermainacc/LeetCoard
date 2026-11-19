@@ -31,7 +31,7 @@ const DIFF_LABEL: Record<ProblemPayload["difficulty"], string> = {
 };
 
 const AUTO_SCROLL_IDLE_MS = 10_000;
-const AUTO_SCROLL_TICK_MS = 50;
+const AUTO_SCROLL_TICK_MS = 16;
 const AUTO_SCROLL_SPEED_PX_PER_MS = 0.045;
 
 function buildSolvers(
