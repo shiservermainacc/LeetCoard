@@ -124,7 +124,7 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
     let previousFrameTime = 0;
     let direction = 1;
     let autoScrolling = false;
-    let expectedAutoScrollTop: number | null = null;
+    let draggingScrollbar = false;
 
     const stop = () => {
       if (frame) cancelAnimationFrame(frame);
@@ -137,7 +137,6 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
       idleTimer = 0;
       stop();
       autoScrolling = false;
-      expectedAutoScrollTop = null;
     };
 
     const tick = (time: number) => {
@@ -153,16 +152,13 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
 
       const nextTop = list.scrollTop + direction * elapsed * AUTO_SCROLL_SPEED_PX_PER_MS;
       if (nextTop >= maxScroll) {
-        expectedAutoScrollTop = maxScroll;
-        list.scrollTop = expectedAutoScrollTop;
+        list.scrollTop = maxScroll;
         direction = -1;
       } else if (nextTop <= 0) {
-        expectedAutoScrollTop = 0;
-        list.scrollTop = expectedAutoScrollTop;
+        list.scrollTop = 0;
         direction = 1;
       } else {
-        expectedAutoScrollTop = nextTop;
-        list.scrollTop = expectedAutoScrollTop;
+        list.scrollTop = nextTop;
       }
 
       frame = requestAnimationFrame(tick);
@@ -182,15 +178,24 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
     };
 
     const onScroll = () => {
-      if (
-        autoScrolling &&
-        expectedAutoScrollTop !== null &&
-        Math.abs(list.scrollTop - expectedAutoScrollTop) < 1.5
-      ) {
-        return;
-      }
+      if (autoScrolling) return;
       restartIdleTimer();
     };
+    const onPointerDown = (event: PointerEvent) => {
+      const bounds = list.getBoundingClientRect();
+      const scrollbarWidth = list.offsetWidth - list.clientWidth;
+      draggingScrollbar = scrollbarWidth > 0 && event.clientX >= bounds.right - scrollbarWidth;
+      if (draggingScrollbar) restartIdleTimer();
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (draggingScrollbar && event.buttons > 0) restartIdleTimer();
+    };
+    const onPointerUp = () => {
+      if (!draggingScrollbar) return;
+      draggingScrollbar = false;
+      restartIdleTimer();
+    };
+    const onScrollInput = () => restartIdleTimer();
     const onWindowBlur = () => pause();
     const onWindowFocus = () => restartIdleTimer();
     const onVisibilityChange = () => {
@@ -199,6 +204,12 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
     };
 
     list.addEventListener("scroll", onScroll, { passive: true });
+    ["wheel", "touchstart", "touchmove", "touchend", "keydown"].forEach((eventName) =>
+      list.addEventListener(eventName, onScrollInput, { passive: true }),
+    );
+    list.addEventListener("pointerdown", onPointerDown);
+    list.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("blur", onWindowBlur);
     window.addEventListener("focus", onWindowFocus);
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -213,6 +224,12 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
       pause();
       resizeObserver.disconnect();
       list.removeEventListener("scroll", onScroll);
+      ["wheel", "touchstart", "touchmove", "touchend", "keydown"].forEach((eventName) =>
+        list.removeEventListener(eventName, onScrollInput),
+      );
+      list.removeEventListener("pointerdown", onPointerDown);
+      list.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("blur", onWindowBlur);
       window.removeEventListener("focus", onWindowFocus);
       document.removeEventListener("visibilitychange", onVisibilityChange);
