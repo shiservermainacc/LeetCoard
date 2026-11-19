@@ -158,11 +158,23 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
     const restartIdleTimer = () => {
       window.clearTimeout(idleTimer);
       stop();
+      if (document.hidden) return;
+
       idleTimer = window.setTimeout(() => {
-        if (list.scrollHeight > list.clientHeight + 1) {
+        if (!document.hidden && list.scrollHeight > list.clientHeight + 1) {
           frame = requestAnimationFrame(tick);
         }
       }, AUTO_SCROLL_IDLE_MS);
+    };
+
+    const onWindowBlur = () => {
+      window.clearTimeout(idleTimer);
+      stop();
+    };
+    const onWindowFocus = () => restartIdleTimer();
+    const onVisibilityChange = () => {
+      if (document.hidden) onWindowBlur();
+      else restartIdleTimer();
     };
 
     const onPointerMove = (event: PointerEvent) => {
@@ -182,6 +194,9 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
       list.addEventListener(eventName, restartIdleTimer, { passive: true }),
     );
     list.addEventListener("pointermove", onPointerMove, { passive: true });
+    window.addEventListener("blur", onWindowBlur);
+    window.addEventListener("focus", onWindowFocus);
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     const resizeObserver = new ResizeObserver(restartIdleTimer);
     resizeObserver.observe(list);
@@ -196,6 +211,9 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
         list.removeEventListener(eventName, restartIdleTimer),
       );
       list.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("blur", onWindowBlur);
+      window.removeEventListener("focus", onWindowFocus);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 
