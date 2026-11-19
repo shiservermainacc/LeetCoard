@@ -31,6 +31,7 @@ const DIFF_LABEL: Record<ProblemPayload["difficulty"], string> = {
 };
 
 const AUTO_SCROLL_IDLE_MS = 10_000;
+const AUTO_SCROLL_TICK_MS = 50;
 const AUTO_SCROLL_SPEED_PX_PER_MS = 0.045;
 
 function buildSolvers(
@@ -112,45 +113,27 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
   const sortedProblems = [...problems].sort((a, b) => a.order - b.order);
   const rowByUser = new Map(leaderboard.map((r) => [r.username, r]));
   const listRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const list = listRef.current;
-    const content = contentRef.current;
-    if (!list || !content) return;
+    if (!list) return;
 
-    let idleTimer = 0;
-    let frame = 0;
-    let previousFrameTime = 0;
+    let lastUserScrollAt = Date.now();
     let direction = 1;
     let autoScrolling = false;
     let draggingScrollbar = false;
 
-    const stop = () => {
-      if (frame) cancelAnimationFrame(frame);
-      frame = 0;
-      previousFrameTime = 0;
-    };
-
-    const pause = () => {
-      window.clearTimeout(idleTimer);
-      idleTimer = 0;
-      stop();
-      autoScrolling = false;
-    };
-
-    const tick = (time: number) => {
-      if (!previousFrameTime) previousFrameTime = time;
-      const elapsed = Math.min(time - previousFrameTime, 50);
-      previousFrameTime = time;
-
+    const tick = () => {
+      if (Date.now() - lastUserScrollAt < AUTO_SCROLL_IDLE_MS) return;
       const maxScroll = list.scrollHeight - list.clientHeight;
       if (maxScroll <= 1) {
-        stop();
+        autoScrolling = false;
         return;
       }
 
-      const nextTop = list.scrollTop + direction * elapsed * AUTO_SCROLL_SPEED_PX_PER_MS;
+      autoScrolling = true;
+      const nextTop =
+        list.scrollTop + direction * AUTO_SCROLL_TICK_MS * AUTO_SCROLL_SPEED_PX_PER_MS;
       if (nextTop >= maxScroll) {
         list.scrollTop = maxScroll;
         direction = -1;
@@ -160,79 +143,54 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
       } else {
         list.scrollTop = nextTop;
       }
-
-      frame = requestAnimationFrame(tick);
-    };
-
-    const restartIdleTimer = () => {
-      pause();
-      if (document.hidden) return;
-
-      idleTimer = window.setTimeout(() => {
-        idleTimer = 0;
-        if (!document.hidden && list.scrollHeight > list.clientHeight + 1) {
-          autoScrolling = true;
-          frame = requestAnimationFrame(tick);
-        }
-      }, AUTO_SCROLL_IDLE_MS);
     };
 
     const onScroll = () => {
       if (autoScrolling) return;
-      restartIdleTimer();
+      lastUserScrollAt = Date.now();
+    };
+    const onScrollInput = () => {
+      lastUserScrollAt = Date.now();
+      autoScrolling = false;
     };
     const onPointerDown = (event: PointerEvent) => {
       const bounds = list.getBoundingClientRect();
       const scrollbarWidth = list.offsetWidth - list.clientWidth;
       draggingScrollbar = scrollbarWidth > 0 && event.clientX >= bounds.right - scrollbarWidth;
-      if (draggingScrollbar) restartIdleTimer();
+      if (draggingScrollbar) onScrollInput();
     };
     const onPointerMove = (event: PointerEvent) => {
-      if (draggingScrollbar && event.buttons > 0) restartIdleTimer();
+      if (draggingScrollbar && event.buttons > 0) onScrollInput();
     };
     const onPointerUp = () => {
       if (!draggingScrollbar) return;
       draggingScrollbar = false;
-      restartIdleTimer();
+      onScrollInput();
     };
-    const onScrollInput = () => restartIdleTimer();
-    const onWindowBlur = () => pause();
-    const onWindowFocus = () => restartIdleTimer();
-    const onVisibilityChange = () => {
-      if (document.hidden) pause();
-      else restartIdleTimer();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (["ArrowDown", "ArrowUp", "PageDown", "PageUp", "Home", "End", " "].includes(event.key)) {
+        onScrollInput();
+      }
     };
 
     list.addEventListener("scroll", onScroll, { passive: true });
-    ["wheel", "touchstart", "touchmove", "touchend", "keydown"].forEach((eventName) =>
-      list.addEventListener(eventName, onScrollInput, { passive: true }),
-    );
+    list.addEventListener("wheel", onScrollInput, { passive: true });
+    list.addEventListener("touchmove", onScrollInput, { passive: true });
+    list.addEventListener("keydown", onKeyDown);
     list.addEventListener("pointerdown", onPointerDown);
     list.addEventListener("pointermove", onPointerMove, { passive: true });
     window.addEventListener("pointerup", onPointerUp);
-    window.addEventListener("blur", onWindowBlur);
-    window.addEventListener("focus", onWindowFocus);
-    document.addEventListener("visibilitychange", onVisibilityChange);
-
-    const resizeObserver = new ResizeObserver(() => {
-      if (idleTimer === 0 && frame === 0 && !document.hidden) restartIdleTimer();
-    });
-    resizeObserver.observe(content);
-    restartIdleTimer();
+    const interval = window.setInterval(tick, AUTO_SCROLL_TICK_MS);
 
     return () => {
-      pause();
-      resizeObserver.disconnect();
+      window.clearInterval(interval);
       list.removeEventListener("scroll", onScroll);
-      ["wheel", "touchstart", "touchmove", "touchend", "keydown"].forEach((eventName) =>
-        list.removeEventListener(eventName, onScrollInput),
-      );
+      list.removeEventListener("wheel", onScrollInput);
+      list.removeEventListener("touchmove", onScrollInput);
+      list.removeEventListener("keydown", onKeyDown);
       list.removeEventListener("pointerdown", onPointerDown);
       list.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
-      window.removeEventListener("blur", onWindowBlur);
-      window.removeEventListener("focus", onWindowFocus);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, []);
 
@@ -259,7 +217,7 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
             尚未設定題目
           </div>
         )}
-        <div ref={contentRef} className="space-y-4">
+        <div className="space-y-4">
           {sortedProblems.map((p) => (
             <ProblemCard
               key={p.title_slug}
