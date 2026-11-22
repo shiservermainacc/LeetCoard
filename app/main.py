@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.staticfiles import StaticFiles
 
 from .core.config import get_settings
 from .core.sse import broadcaster
@@ -24,6 +27,7 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s :: %(message)s",
 )
 log = logging.getLogger("gdg.main")
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 
 
 @asynccontextmanager
@@ -87,6 +91,58 @@ def create_app() -> FastAPI:
     )
     app.include_router(public_routes.router, prefix="/api", tags=["public"])
     app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"])
+
+    # Register the frontend after API routes so it cannot shadow them.
+    dist_dir = FRONTEND_DIST.resolve()
+    index_file = dist_dir / "index.html"
+    assets_dir = dist_dir / "assets"
+
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="frontend-assets")
+    if not index_file.is_file():
+        log.warning(
+            "Frontend build not found at %s; API will start without the React UI. "
+            "Build it with `npm --prefix frontend run build`.",
+            index_file,
+        )
+
+    def serve_frontend(path: str = ""):
+        if path == "api" or path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        if not index_file.is_file():
+            return PlainTextResponse(
+                "Frontend build not found. Run `npm --prefix frontend run build`.",
+                status_code=503,
+            )
+
+        if path:
+            candidate = (dist_dir / path).resolve()
+            try:
+                candidate.relative_to(dist_dir)
+            except ValueError:
+                raise HTTPException(status_code=404, detail="Not Found") from None
+            if candidate.is_file():
+                return FileResponse(candidate)
+            # Missing file-like paths (for example, JS/CSS assets) should stay
+            # 404s instead of receiving the React document.
+            if Path(path).suffix:
+                raise HTTPException(status_code=404, detail="Not Found")
+
+        return FileResponse(index_file)
+
+    def frontend_index():
+        return serve_frontend()
+
+    app.add_api_route(
+        "/", frontend_index, methods=["GET"], include_in_schema=False, name="frontend-index"
+    )
+    app.add_api_route(
+        "/{path:path}",
+        serve_frontend,
+        methods=["GET"],
+        include_in_schema=False,
+        name="frontend-spa-fallback",
+    )
     return app
 
 
