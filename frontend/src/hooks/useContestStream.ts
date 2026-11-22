@@ -47,8 +47,14 @@ function reducer(state: State, action: Action): State {
       return { ...state, snapshot: { ...state.snapshot, leaderboard: action.leaderboard } };
     case "submission_event": {
       if (!state.snapshot) return state;
-      const events = [...state.snapshot.events, action.event].slice(-200);
-      return { ...state, snapshot: { ...state.snapshot, events } };
+      const existingIndex = state.snapshot.events.findIndex((event) => event.id === action.event.id);
+      const events = [...state.snapshot.events];
+      if (existingIndex >= 0) {
+        events[existingIndex] = action.event;
+      } else {
+        events.push(action.event);
+      }
+      return { ...state, snapshot: { ...state.snapshot, events: events.slice(-200) } };
     }
     case "contest_status": {
       if (!state.snapshot) return state;

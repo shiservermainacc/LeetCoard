@@ -35,6 +35,7 @@ from .models import (
 log = logging.getLogger("gdg.engine")
 
 _MAX_EVENTS = 500
+_PROVISIONAL_STATUSES = {"Other", "Pending", "Judging", "Processing", "Running", "Started", "Queued"}
 _SHORT_LABELS = {
     "Accepted": "AC",
     "Wrong Answer": "WA",
@@ -52,6 +53,10 @@ def _utcnow() -> datetime:
 
 def _short_label(status: str) -> str:
     return _SHORT_LABELS.get(status, status[:3].upper() if status else "??")
+
+
+def _problem_title_key(title: Optional[str]) -> str:
+    return " ".join((title or "").casefold().split())
 
 
 def _extract_beat_pct(sub: dict) -> Optional[float]:
@@ -460,14 +465,52 @@ class ContestEngine:
                 return  # ignore submissions for unknown users (defensive)
 
             tracked = {p.title_slug: p for p in self.contest.problems}
+            tracked_by_title: Dict[str, List[Problem]] = {}
+            for problem in self.contest.problems:
+                title_key = _problem_title_key(problem.title)
+                if title_key:
+                    tracked_by_title.setdefault(title_key, []).append(problem)
+            events_by_submission_id = {
+                evt.submission_id: evt
+                for evt in self.contest.events
+                if evt.submission_id is not None
+            }
             new_events: List[SubmissionEvent] = []
 
             for sub in raw_submissions:
                 sub_id = str(sub.get("id") or "")
-                if not sub_id or sub_id in self.contest.seen_submission_ids:
+                if not sub_id:
                     continue
                 slug = sub.get("titleSlug") or sub.get("title_slug")
                 status_disp = sub.get("statusDisplay") or sub.get("status") or "Other"
+                previous_event = events_by_submission_id.get(sub_id)
+                problem = tracked.get(slug) if slug else None
+                title_matches = (
+                    tracked_by_title.get(_problem_title_key(sub.get("title")), [])
+                    if problem is None
+                    else []
+                )
+                if problem is None and len(title_matches) == 1:
+                    problem = title_matches[0]
+                title_match_upgrade = (
+                    previous_event is not None
+                    and not previous_event.is_tracked
+                    and problem is not None
+                    and status_disp not in _PROVISIONAL_STATUSES
+                )
+                status_upgrade = (
+                    sub_id in self.contest.seen_submission_ids
+                    and previous_event is not None
+                    and (
+                        (
+                            previous_event.status in _PROVISIONAL_STATUSES
+                            and status_disp not in _PROVISIONAL_STATUSES
+                        )
+                        or title_match_upgrade
+                    )
+                )
+                if sub_id in self.contest.seen_submission_ids and not status_upgrade:
+                    continue
                 ts_raw = sub.get("timestamp")
                 if not slug or ts_raw is None:
                     self.contest.seen_submission_ids.add(sub_id)
@@ -481,8 +524,21 @@ class ContestEngine:
                 # Always mark seen so we don't reprocess on next poll.
                 self.contest.seen_submission_ids.add(sub_id)
 
-                problem = tracked.get(slug)
+                if problem is not None:
+                    slug = problem.title_slug
                 is_tracked = problem is not None
+
+                def record_event(evt: SubmissionEvent) -> None:
+                    if previous_event is not None:
+                        evt.id = previous_event.id
+                        for idx, old_evt in enumerate(self.contest.events):
+                            if old_evt.id == previous_event.id:
+                                self.contest.events[idx] = evt
+                                break
+                    else:
+                        self.contest.events.append(evt)
+                    events_by_submission_id[sub_id] = evt
+                    new_events.append(evt)
 
                 is_accepted = status_disp == SubmissionStatus.accepted.value
                 is_scoring = False
@@ -527,12 +583,13 @@ class ContestEngine:
                         is_overflow=False,
                         is_tracked=False,
                     )
-                    self.contest.events.append(evt)
-                    new_events.append(evt)
+                    record_event(evt)
                     continue
 
                 if is_accepted:
                     beat_pct = _extract_beat_pct(sub)
+                    if beat_pct is None and previous_event is not None:
+                        beat_pct = previous_event.beat_pct
                     new_bonus = compute_beat_bonus(beat_pct, problem.beat_bonus_tiers)
 
                     if not in_window:
@@ -592,8 +649,7 @@ class ContestEngine:
                     is_tracked=True,
                     note=note,
                 )
-                self.contest.events.append(evt)
-                new_events.append(evt)
+                record_event(evt)
 
             if len(self.contest.events) > _MAX_EVENTS:
                 self.contest.events = self.contest.events[-_MAX_EVENTS:]

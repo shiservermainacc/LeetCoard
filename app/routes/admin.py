@@ -8,6 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from datetime import datetime
 from typing import List, Optional
 
@@ -129,21 +130,55 @@ async def set_problems(body: ProblemsIn, request: Request, _: None = Depends(req
     problems: list[Problem] = []
     for p in body.problems:
         prob = Problem(**p.model_dump())
-        if not prob.frontend_id:
+        numeric_slug = re.fullmatch(r"#?(\d+)", prob.title_slug.strip())
+        if numeric_slug or not prob.frontend_id:
+            lookup_key = numeric_slug.group(1) if numeric_slug else prob.title_slug
+            data = None
             try:
-                data = await client.get_problem(prob.title_slug)
+                data = await client.get_problem(lookup_key)
+            except Exception:
+                pass
+
+            if data:
+                resolved_slug = data.get("titleSlug") or data.get("title_slug")
+                if numeric_slug and isinstance(resolved_slug, str) and not re.fullmatch(
+                    r"#?\d+", resolved_slug.strip()
+                ):
+                    prob.title_slug = resolved_slug.strip()
                 raw_fid = (
                     data.get("questionFrontendId")
                     or data.get("frontend_id")
                     or data.get("questionId")
                     or data.get("id")
                 )
-                if raw_fid is not None:
+                if raw_fid is not None and not prob.frontend_id:
                     prob.frontend_id = str(raw_fid)
                 if not prob.title:
                     prob.title = data.get("title") or prob.title_slug
-            except Exception:
-                pass  # best-effort; missing id is OK
+
+            # Some problem-detail responses omit the canonical slug when
+            # looked up by number. Resolve it from search results by frontend ID.
+            if numeric_slug and re.fullmatch(r"#?\d+", prob.title_slug.strip()):
+                try:
+                    hits = await client.search_problems(prob.title or "", limit=50)
+                except Exception:
+                    hits = []
+                match = next(
+                    (
+                        hit for hit in hits
+                        if str(hit.get("frontend_id") or "") == numeric_slug.group(1)
+                        and isinstance(hit.get("title_slug"), str)
+                    ),
+                    None,
+                )
+                if match:
+                    prob.title_slug = match["title_slug"]
+
+            if numeric_slug and re.fullmatch(r"#?\d+", prob.title_slug.strip()):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Could not resolve LeetCode problem number {numeric_slug.group(1)} to a title slug",
+                )
         problems.append(prob)
     try:
         added, removed = await engine.set_problems(problems)
