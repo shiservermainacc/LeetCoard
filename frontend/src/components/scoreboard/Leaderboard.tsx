@@ -89,13 +89,16 @@ function Row({ row, problems }: { row: LeaderboardRow; problems: ProblemPayload[
           </div>
         )}
       </div>
-      <div className="min-w-0 flex-none max-w-[35%]">
-        <div className="text-[14px] font-bold leading-tight truncate" style={{ color: colour }}>
+      <div className="min-w-0 flex-1">
+        <div
+          className="text-[14px] font-bold leading-tight whitespace-normal [overflow-wrap:anywhere]"
+          style={{ color: colour }}
+        >
           {row.username}
         </div>
         <div className="text-[11px] text-ink-300 font-mono truncate">{row.student_id}</div>
       </div>
-      <div className="flex min-w-0 flex-1 flex-wrap content-center justify-end gap-1">
+      <div className="flex w-[88px] shrink-0 flex-wrap content-center justify-start gap-1">
         {problems.map((p) => {
           const solved = row.solved_problems.includes(p.title_slug);
           return (
