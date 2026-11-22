@@ -105,8 +105,8 @@ class SubmissionEvent(BaseModel):
     bonus_delta: int = 0        # bonus portion of points_delta (from beat-% tiers)
     beat_pct: Optional[float] = None  # runtime beat percentile reported by LeetCode
     is_accepted: bool = False
-    is_scoring: bool = False  # True only if it actually awarded points (first valid AC)
-    is_overflow: bool = False  # True for AC #4+ on a problem (not counted toward bonus)
+    is_scoring: bool = False  # True when this submission actually awarded points
+    is_overflow: bool = False  # Legacy marker for persisted events from the old AC cap
     is_tracked: bool = True    # False for submissions to non-contest problems
     note: Optional[str] = None  # e.g. "outside contest window", "duplicate"
 

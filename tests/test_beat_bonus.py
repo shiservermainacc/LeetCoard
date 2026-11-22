@@ -210,9 +210,8 @@ async def test_re_ac_with_better_beat_pct_upgrades_bonus(tmp_path: Path):
 
 
 @pytest.mark.asyncio
-async def test_fourth_ac_does_not_upgrade_bonus(tmp_path: Path):
-    """Only the first 3 in-window ACs per problem can move the bonus.
-    A 4th AC with a higher beat % is recorded as overflow, no score change."""
+async def test_fourth_ac_can_upgrade_bonus(tmp_path: Path):
+    """A 4th in-window AC can upgrade the bonus without re-awarding base points."""
     engine = _make_engine(tmp_path)
     start = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
     _seed(engine, start, start + timedelta(hours=2))
@@ -234,20 +233,21 @@ async def test_fourth_ac_does_not_upgrade_bonus(tmp_path: Path):
     )
     assert engine.contest.participants["alice"].score == 1 + 2
 
-    # AC #4 at beat 99 — would normally upgrade to tier 3 — but locked.
+    # AC #4 at beat 99 upgrades to tier 3, awarding only the bonus difference.
     await engine.ingest_submissions(
         "alice",
         [_sub(103, "two-sum", "Accepted", start + timedelta(minutes=4), beat_pct=99.0)],
     )
     alice = engine.contest.participants["alice"]
-    assert alice.score == 1 + 2  # unchanged
-    assert alice.problem_bonus_pts["two-sum"] == 2  # unchanged
+    assert alice.score == 1 + 3
+    assert alice.problem_bonus_pts["two-sum"] == 3
     assert alice.problem_ac_count["two-sum"] == 4
 
-    overflow_evt = next(e for e in engine.contest.events if e.submission_id == "103")
-    assert overflow_evt.is_overflow is True
-    assert overflow_evt.is_scoring is False
-    assert overflow_evt.bonus_delta == 0
+    upgrade_evt = next(e for e in engine.contest.events if e.submission_id == "103")
+    assert upgrade_evt.is_overflow is False
+    assert upgrade_evt.is_scoring is True
+    assert upgrade_evt.bonus_delta == 1
+    assert upgrade_evt.points_delta == 1
 
 
 @pytest.mark.asyncio

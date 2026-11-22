@@ -595,8 +595,7 @@ class ContestEngine:
                     if not in_window:
                         note = "outside contest window"
                     else:
-                        # Bump the in-window AC counter; only the first 3 AC
-                        # submissions per (user, problem) can move the bonus.
+                        # Track in-window AC submissions for this problem.
                         new_count = participant.problem_ac_count.get(slug, 0) + 1
                         participant.problem_ac_count[slug] = new_count
 
@@ -612,8 +611,8 @@ class ContestEngine:
                                 participant.problem_best_beat_pct[slug] = beat_pct
                             participant.score += points_delta
                             participant.reached_current_score_at = submitted_at
-                        elif new_count <= 3:
-                            # 2nd or 3rd AC — may upgrade if beat % improved.
+                        else:
+                            # Re-AC may upgrade if the beat bonus tier improved.
                             old_bonus = participant.problem_bonus_pts.get(slug, 0)
                             if new_bonus > old_bonus:
                                 is_scoring = True
@@ -627,9 +626,6 @@ class ContestEngine:
                                 participant.score += bonus_delta
                                 participant.reached_current_score_at = submitted_at
                                 note = f"bonus +{old_bonus}→+{new_bonus}"
-                        else:
-                            # 4th+ AC — locked in, never updates the bonus.
-                            is_overflow = True
 
                 evt = SubmissionEvent(
                     submission_id=sub_id,

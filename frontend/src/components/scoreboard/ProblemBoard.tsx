@@ -44,7 +44,7 @@ function buildSolvers(
   // first in-window AC and on bonus upgrades — i.e. exactly the submissions
   // whose beat% mutated `problem_best_beat_pct`. This intentionally excludes:
   //   - out-of-window ACs (is_scoring always false)
-  //   - 4th+ overflow ACs (is_scoring always false)
+  //   - legacy overflow ACs persisted from before unlimited bonus upgrades
   //   - re-ACs that did not move the bonus tier
   const best = new Map<string, Solver>();
   for (const e of events) {
