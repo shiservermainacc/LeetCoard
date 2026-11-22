@@ -16,16 +16,31 @@ export default function Leaderboard({ rows, problems }: Props) {
           <div className="size-2 rounded-full bg-g-blue animate-pulse" />
           <h2 className="font-display font-bold text-lg tracking-wide">排行榜</h2>
         </div>
-        <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(40px,1fr))] gap-x-1 gap-y-1 text-[10px] text-ink-300 font-mono">
-          {sortedProblems.map((p) => (
-            <div key={p.title_slug} className="flex min-w-0 items-center justify-center gap-1">
-              <span
-                className="inline-block size-2 rounded-full"
-                style={{ background: difficultyColor(p.difficulty) }}
-              />
-              <span>{p.points}</span>
-            </div>
-          ))}
+        <div className="grid w-full grid-cols-[repeat(auto-fit,minmax(56px,1fr))] gap-x-1 gap-y-1 text-[10px] text-ink-300 font-mono">
+          {sortedProblems.map((p) => {
+            const maxBonus = Math.max(0, ...(p.beat_bonus_tiers ?? []).map((tier) => tier.bonus_pts));
+            const maxScore = p.points + maxBonus;
+            const tiers = [...(p.beat_bonus_tiers ?? [])]
+              .sort((a, b) => b.min_beat_pct - a.min_beat_pct)
+              .map((tier) => `Beat ${tier.min_beat_pct}%+: +${tier.bonus_pts}`)
+              .join("; ");
+            return (
+              <div
+                key={p.title_slug}
+                className="flex min-w-0 items-center justify-center gap-1 whitespace-nowrap"
+                title={`基本分 ${p.points}，含 Beat bonus 最高 ${maxScore}${tiers ? `；${tiers}` : "（無 bonus）"}`}
+                aria-label={`${p.title ?? p.title_slug}: ${p.points} base points, up to ${maxScore} points including Beat bonus${tiers ? `; ${tiers}` : "; no bonus tiers"}`}
+              >
+                <span
+                  className="inline-block size-2 rounded-full"
+                  style={{ background: difficultyColor(p.difficulty) }}
+                />
+                <span>
+                  {p.points}{maxBonus > 0 && <span className="text-ink-100">({maxScore})</span>}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
       <div className="flex-1 overflow-y-auto">
@@ -80,7 +95,7 @@ function Row({ row, problems }: { row: LeaderboardRow; problems: ProblemPayload[
         </div>
         <div className="text-[11px] text-ink-300 font-mono truncate">{row.student_id}</div>
       </div>
-      <div className="flex min-w-0 flex-1 flex-wrap content-center gap-1">
+      <div className="flex min-w-0 flex-1 flex-wrap content-center justify-end gap-1">
         {problems.map((p) => {
           const solved = row.solved_problems.includes(p.title_slug);
           return (
