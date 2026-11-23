@@ -1,7 +1,9 @@
-// In dev, Vite proxies `/api` to localhost:8080.
-// In production (Cloudflare Pages), `_redirects` maps `/api/*` to the
-// upstream API host, so the frontend always uses the relative path.
-export const API_BASE = (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
+// Vite dev proxies `/api` to localhost:8080, while production serves the
+// frontend and API from the same origin (FastAPI or the Pages `_redirects`).
+// Keep production same-origin even if VITE_API_BASE is set in a local env file.
+export const API_BASE = import.meta.env.PROD
+  ? ""
+  : (import.meta.env.VITE_API_BASE ?? "").replace(/\/$/, "");
 
 function authHeaders(token: string | null): HeadersInit {
   return token ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
