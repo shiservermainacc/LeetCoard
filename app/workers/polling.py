@@ -35,6 +35,9 @@ class PollingWorker:
         self._stop = asyncio.Event()
         self._profile_queue: asyncio.Queue[str] = asyncio.Queue()
         self._enqueued: Set[str] = set()
+        # Beat% can appear after the submission itself; keep missing values retryable.
+        self._beat_retry_after: dict[str, datetime] = {}
+        self._beat_retry_attempts: dict[str, int] = {}
 
     async def start(self) -> None:
         self._stop.clear()
@@ -160,33 +163,120 @@ class PollingWorker:
                 log.exception("Polling loop hiccup; sleeping 2s")
                 await asyncio.sleep(2)
 
-    async def _enrich_runtime_percentile(self, subs: list[dict]) -> None:
-        """Best-effort: inject `runtimePercentile` into new AC submissions.
+    async def _enrich_runtime_percentile(self, username: str, subs: list[dict]) -> None:
+        """Fetch missing runtime percentiles and keep transient misses retryable."""
+        now = datetime.now(timezone.utc)
+        candidates: dict[str, dict] = {}
+        contest = self._engine.contest
+        tracked_slugs = {problem.title_slug for problem in contest.problems}
+        tracked_titles: dict[str, list] = {}
+        for problem in contest.problems:
+            title_key = self._normalize_title(problem.title)
+            if title_key:
+                tracked_titles.setdefault(title_key, []).append(problem)
+        existing_events = {
+            str(event.submission_id): event
+            for event in contest.events
+            if event.username == username and event.submission_id is not None
+        }
+        for sub in subs:
+            if (sub.get("statusDisplay") or sub.get("status")) != "Accepted":
+                continue
+            sub_id = str(sub.get("id") or "")
+            existing_event = existing_events.get(sub_id)
+            if existing_event is not None and existing_event.beat_pct is not None:
+                # The list endpoint omits Beat%, so don't refetch a value
+                # already persisted on the corresponding contest event.
+                continue
+            slug = sub.get("titleSlug") or sub.get("title_slug")
+            title_matches = tracked_titles.get(self._normalize_title(sub.get("title")), [])
+            is_tracked = slug in tracked_slugs or len(title_matches) == 1
+            try:
+                submitted_at = datetime.fromtimestamp(int(sub.get("timestamp")), tz=timezone.utc)
+            except (TypeError, ValueError, OSError):
+                continue
+            if (
+                sub_id
+                and is_tracked
+                and contest.start_time is not None
+                and contest.end_time is not None
+                and contest.start_time <= submitted_at <= contest.end_time
+                and self._read_percentile(sub) is None
+            ):
+                candidates[sub_id] = sub
 
-        leetcode-api-pied's submission list lacks beat-%; we fetch each new AC's
-        detail via LeetCode GraphQL. Skips already-seen ids to bound API load.
-        Any failure is silent — beat-% bonus simply doesn't apply for that submission.
-        """
-        seen = self._engine.contest.seen_submission_ids
-        targets = [
-            s for s in subs
-            if (s.get("statusDisplay") or s.get("status")) == "Accepted"
-            and "runtimePercentile" not in s
-            and str(s.get("id") or "") not in seen
-            and s.get("id") is not None
-        ]
-        for s in targets:
-            sub_id = str(s["id"])
+        # Also retry tracked events that have aged out of the recent list.
+        current_by_id = {str(sub.get("id") or ""): sub for sub in subs}
+        current_ids = set(current_by_id)
+        for event in self._engine.contest.events:
+            if (event.username != username or not event.is_tracked or not event.is_accepted
+                    or event.beat_pct is not None or event.submission_id is None):
+                continue
+            start = self._engine.contest.start_time
+            end = self._engine.contest.end_time
+            if start is None or end is None or not (start <= event.submitted_at <= end):
+                continue
+            sub_id = str(event.submission_id)
+            current_submission = current_by_id.get(sub_id)
+            if current_submission is not None and self._read_percentile(current_submission) is not None:
+                continue
+            retry_payload = {
+                "id": sub_id,
+                "statusDisplay": "Accepted",
+                "titleSlug": event.title_slug,
+                "title": event.title,
+                "timestamp": int(event.submitted_at.timestamp()),
+            }
+            candidates.setdefault(sub_id, retry_payload)
+            if sub_id not in current_ids:
+                subs.append(retry_payload)
+                current_ids.add(sub_id)
+
+        for sub_id, sub in candidates.items():
+            if self._beat_retry_after.get(sub_id, now) > now:
+                continue
             pct = await self._client.get_submission_runtime_percentile(sub_id)
-            if pct is not None:
-                s["runtimePercentile"] = pct
+            if pct is not None and 0.0 <= pct <= 100.0:
+                sub["runtimePercentile"] = pct
+                self._beat_retry_after.pop(sub_id, None)
+                self._beat_retry_attempts.pop(sub_id, None)
+                log.info("Loaded Beat %.2f%% for submission %s", pct, sub_id)
+            else:
+                attempt = self._beat_retry_attempts.get(sub_id, 0) + 1
+                self._beat_retry_attempts[sub_id] = attempt
+                delay = min(300, 15 * (2 ** min(attempt - 1, 5)))
+                self._beat_retry_after[sub_id] = now + timedelta(seconds=delay)
+                log.info(
+                    "Beat still unavailable for submission %s; retry in %ss (attempt %s)",
+                    sub_id,
+                    delay,
+                    attempt,
+                )
+
+    @staticmethod
+    def _normalize_title(value: object) -> str:
+        return " ".join(str(value or "").casefold().split())
+
+    @staticmethod
+    def _read_percentile(sub: dict) -> Optional[float]:
+        for key in ("runtimePercentile", "runtime_percentile", "beatPercentile", "beat_percentile"):
+            value = sub.get(key)
+            if value is None:
+                continue
+            try:
+                pct = float(value)
+            except (TypeError, ValueError):
+                continue
+            if 0.0 <= pct <= 100.0:
+                return pct
+        return None
 
     async def _poll_one(self, username: str) -> None:
         try:
             subs = await self._client.get_recent_submissions(
                 username, limit=self._cfg.poll_recent_limit
             )
-            await self._enrich_runtime_percentile(subs)
+            await self._enrich_runtime_percentile(username, subs)
             await self._engine.ingest_submissions(username, subs)
         except LeetCodeError as exc:
             log.warning("Poll failed for %s: %s", username, exc)

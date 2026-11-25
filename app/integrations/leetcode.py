@@ -190,13 +190,11 @@ class LeetCodeClient:
         Rate-limit / network errors cool down the picked session like other calls.
         """
         if not self._client or not self._states:
+            log.warning("Beat percentile lookup unavailable: LeetCode client/session is not configured")
             return None
         try:
             sid_int = int(submission_id)
         except (TypeError, ValueError):
-            return None
-        sess = await self._pick_session()
-        if not sess:
             return None
         payload = {
             "operationName": "submissionDetails",
@@ -207,40 +205,70 @@ class LeetCodeClient:
                 " }"
             ),
         }
-        headers = {
-            "content-type": "application/json",
-            "origin": "https://leetcode.com",
-            "referer": f"https://leetcode.com/submissions/detail/{sid_int}/",
-            "user-agent": "Mozilla/5.0",
-            "cookie": f"LEETCODE_SESSION={sess.cookie}",
-        }
-        try:
-            resp = await self._client.post(
-                "https://leetcode.com/graphql/", json=payload, headers=headers,
-            )
-        except (httpx.RequestError, asyncio.TimeoutError) as exc:
-            self._cool(sess, 30)
-            log.debug("graphql submissionDetails network: %s: %s", type(exc).__name__, exc)
-            return None
-        if resp.status_code == 429:
-            self._cool(sess, 60)
-            return None
-        if resp.status_code >= 400:
-            return None
-        try:
-            data = resp.json()
-        except ValueError:
-            return None
-        details = ((data or {}).get("data") or {}).get("submissionDetails") or {}
-        pct = details.get("runtimePercentile")
-        if pct is None:
-            return None
-        try:
-            f = float(pct)
-        except (TypeError, ValueError):
-            return None
-        self._ok(sess)
-        return f if 0.0 <= f <= 100.0 else None
+        attempted: set[int] = set()
+        for _ in range(len(self._states)):
+            sess = await self._pick_session()
+            if sess is None or id(sess) in attempted:
+                break
+            attempted.add(id(sess))
+            headers = {
+                "content-type": "application/json",
+                "origin": "https://leetcode.com",
+                "referer": f"https://leetcode.com/submissions/detail/{sid_int}/",
+                "user-agent": "Mozilla/5.0",
+                "cookie": f"LEETCODE_SESSION={sess.cookie}",
+            }
+            try:
+                resp = await self._client.post(
+                    "https://leetcode.com/graphql/", json=payload, headers=headers,
+                )
+            except (httpx.RequestError, asyncio.TimeoutError) as exc:
+                self._cool(sess, 30)
+                log.debug("graphql submissionDetails network: %s: %s", type(exc).__name__, exc)
+                continue
+            if resp.status_code == 429:
+                self._cool(sess, 60)
+                log.warning("Beat percentile lookup rate limited for submission %s (429)", sid_int)
+                continue
+            if resp.status_code >= 400:
+                if resp.status_code in (401, 403) or resp.status_code >= 500:
+                    self._cool(sess, 60 if resp.status_code < 500 else 30)
+                log.warning(
+                    "Beat percentile lookup failed for submission %s (HTTP %s)",
+                    sid_int,
+                    resp.status_code,
+                )
+                continue
+            try:
+                data = resp.json()
+            except ValueError:
+                log.warning("Beat percentile lookup returned invalid JSON for submission %s", sid_int)
+                continue
+            errors = (data or {}).get("errors")
+            if errors:
+                # A stale cookie can yield HTTP 200 with a GraphQL auth error.
+                self._cool(sess, 60)
+                log.info("Beat percentile GraphQL error for submission %s; trying another session", sid_int)
+                continue
+            details = ((data or {}).get("data") or {}).get("submissionDetails") or {}
+            pct = details.get("runtimePercentile")
+            if pct is None:
+                # Could be delayed stats or a session that cannot view details.
+                log.info("Beat percentile missing for submission %s; trying another session", sid_int)
+                continue
+            try:
+                f = float(pct)
+            except (TypeError, ValueError):
+                log.warning("Beat percentile had an invalid value for submission %s", sid_int)
+                continue
+            if 0.0 <= f <= 100.0:
+                self._ok(sess)
+                return f
+        if not self._states:
+            log.warning("Beat percentile lookup unavailable for submission %s: no session configured", sid_int)
+        else:
+            log.info("Beat percentile unavailable after trying configured sessions for submission %s", sid_int)
+        return None
 
 
 def _coerce_submission_list(data) -> List[dict]:

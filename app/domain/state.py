@@ -509,7 +509,15 @@ class ContestEngine:
                         or title_match_upgrade
                     )
                 )
-                if sub_id in self.contest.seen_submission_ids and not status_upgrade:
+                beat_upgrade = (
+                    sub_id in self.contest.seen_submission_ids
+                    and previous_event is not None
+                    and previous_event.is_accepted
+                    and status_disp == SubmissionStatus.accepted.value
+                    and previous_event.beat_pct is None
+                    and _extract_beat_pct(sub) is not None
+                )
+                if sub_id in self.contest.seen_submission_ids and not status_upgrade and not beat_upgrade:
                     continue
                 ts_raw = sub.get("timestamp")
                 if not slug or ts_raw is None:
@@ -596,8 +604,9 @@ class ContestEngine:
                         note = "outside contest window"
                     else:
                         # Track in-window AC submissions for this problem.
-                        new_count = participant.problem_ac_count.get(slug, 0) + 1
-                        participant.problem_ac_count[slug] = new_count
+                        if not beat_upgrade:
+                            new_count = participant.problem_ac_count.get(slug, 0) + 1
+                            participant.problem_ac_count[slug] = new_count
 
                         if slug not in participant.solved_problems:
                             # First AC — base points + initial bonus.
@@ -626,6 +635,34 @@ class ContestEngine:
                                 participant.score += bonus_delta
                                 participant.reached_current_score_at = submitted_at
                                 note = f"bonus +{old_bonus}→+{new_bonus}"
+                                log.info(
+                                    "Applied Beat bonus username=%s problem=%s beat=%.2f old=%d new=%d score=%d",
+                                    username,
+                                    slug,
+                                    beat_pct if beat_pct is not None else -1.0,
+                                    old_bonus,
+                                    new_bonus,
+                                    participant.score,
+                                )
+
+                if is_tracked and in_window and is_accepted and beat_pct is not None:
+                    participant.problem_best_beat_pct[slug] = max(
+                        participant.problem_best_beat_pct.get(slug, 0.0), beat_pct,
+                    )
+
+                if beat_upgrade and previous_event is not None:
+                    if is_scoring:
+                        # The previous event already contains the base points;
+                        # add only this backfilled bonus to its display totals.
+                        points_delta += previous_event.points_delta
+                        bonus_delta += previous_event.bonus_delta
+                    else:
+                        # A valid Beat value can still be below the next tier.
+                        # Preserve the event's original scoring presentation.
+                        points_delta = previous_event.points_delta
+                        bonus_delta = previous_event.bonus_delta
+                        is_scoring = previous_event.is_scoring
+                        note = previous_event.note
 
                 evt = SubmissionEvent(
                     submission_id=sub_id,
