@@ -245,6 +245,9 @@ function ProblemCard({ problem, solvers, blurTitle, allowSubmissionLinks }: Card
   const masked = blurTitle || !problem.title;
   const title = masked ? "— — — — —" : (problem.title as string);
   const number = masked ? "???" : (problem.frontend_id ?? "—");
+  const problemSlug = /^#?\d+$/.test(problem.title_slug.trim()) && problem.title
+    ? problem.title.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+    : problem.title_slug;
 
   return (
     <motion.div
@@ -266,8 +269,23 @@ function ProblemCard({ problem, solvers, blurTitle, allowSubmissionLinks }: Card
           }
           aria-hidden={masked}
         >
-          <span className="font-mono text-ink-300 mr-2">#{number}</span>
-          {title}
+          {masked ? (
+            <>
+              <span className="font-mono text-ink-300 mr-2">#{number}</span>
+              {title}
+            </>
+          ) : (
+            <a
+              href={`https://leetcode.com/problems/${encodeURIComponent(problemSlug)}/`}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={`在 LeetCode 開啟 ${title}`}
+              className="rounded-sm transition-colors hover:text-g-blue hover:underline hover:decoration-g-blue/70 hover:underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-g-blue/70"
+            >
+              <span className="font-mono text-ink-300 mr-2">#{number}</span>
+              {title}
+            </a>
+          )}
         </h3>
         <span className="shrink-0 font-mono tabular text-sm text-ink-300">
           <span className="text-g-yellow font-bold">{problem.points}</span> pt
