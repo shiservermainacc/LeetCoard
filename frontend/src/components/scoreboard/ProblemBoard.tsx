@@ -224,6 +224,7 @@ export default function ProblemBoard({ problems, events, leaderboard, status }: 
               problem={p}
               solvers={buildSolvers(p, events, rowByUser)}
               blurTitle={status === "setup"}
+              allowSubmissionLinks={status === "ended"}
             />
           ))}
         </div>
@@ -236,9 +237,10 @@ interface CardProps {
   problem: ProblemPayload;
   solvers: Solver[];
   blurTitle: boolean;
+  allowSubmissionLinks: boolean;
 }
 
-function ProblemCard({ problem, solvers, blurTitle }: CardProps) {
+function ProblemCard({ problem, solvers, blurTitle, allowSubmissionLinks }: CardProps) {
   const diffColor = difficultyColor(problem.difficulty);
   const masked = blurTitle || !problem.title;
   const title = masked ? "— — — — —" : (problem.title as string);
@@ -282,7 +284,7 @@ function ProblemCard({ problem, solvers, blurTitle }: CardProps) {
           <div className="flex flex-wrap gap-3">
             <AnimatePresence initial={false}>
               {solvers.map((s, idx) => {
-                const submissionUrl = s.submission_id
+                const submissionUrl = allowSubmissionLinks && s.submission_id
                   ? `https://leetcode.com/submissions/detail/${s.submission_id}/`
                   : null;
                 const AvatarInner = (
